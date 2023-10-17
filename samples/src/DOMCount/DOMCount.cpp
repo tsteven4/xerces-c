@@ -65,14 +65,38 @@ static void usage()
             "    -s          Enable schema processing. Defaults to off.\n"
             "    -f          Enable full schema constraint checking. Defaults to off.\n"
             "    -d          Disallow DOCTYPE. Defaults to false.\n"
+            "    -sc=xxx     Set schema cache location.  Defaults to none.\n"
+            "    -slp=xxx    Set schema location using preset locations for [kml22 | kml21 | kml | gpx11 | gpx10 | gpx].\n"
+            "    -sl=xxx     Specify the schema location.\n"
             "    -locale=ll_CC specify the locale, default: en_US.\n"
             "    -p          Print out names of elements and attributes encountered.\n"
-		    "    -?          Show this help.\n\n"
+            "    -?          Show this help.\n\n"
             "  * = Default if not provided explicitly.\n"
          << XERCES_STD_QUALIFIER endl;
 }
 
-
+void buildSchemaLocation(char * dest, const char * ref, const bool localCache, const char * chacheBase, const char * cacheName, const char * locn, const char * xsd)
+{
+    if (strlen(dest) > 0)
+    {
+        strcat(dest, " ");
+    }
+    strcat(dest, ref);
+    strcat(dest, " ");
+    if (localCache)
+    {
+//        strcpy(dest, "file://");
+        strcat(dest, chacheBase);
+        strcat(dest, cacheName);
+        strcat(dest, "/");
+    }
+    else
+    {
+        strcat(dest, "http://");
+        strcat(dest, locn);
+    }
+    strcat(dest, xsd);
+}
 
 // ---------------------------------------------------------------------------
 //
@@ -86,7 +110,7 @@ static int countChildElements(DOMNode *n, bool printOutEncounteredEles)
     int count = 0;
     if (n) {
         if (n->getNodeType() == DOMNode::ELEMENT_NODE)
-		{
+        {
             if(printOutEncounteredEles) {
                 char *name = XMLString::transcode(n->getNodeName());
                 XERCES_STD_QUALIFIER cout <<"----------------------------------------------------------"<<XERCES_STD_QUALIFIER endl;
@@ -115,8 +139,8 @@ static int countChildElements(DOMNode *n, bool printOutEncounteredEles)
                     }
                 }
             }
-			++count;
-		}
+            ++count;
+        }
         for (child = n->getFirstChild(); child != 0; child=child->getNextSibling())
             count += countChildElements(child, printOutEncounteredEles);
     }
@@ -144,12 +168,22 @@ int main(int argC, char* argV[])
     bool                       doSchema           = false;
     bool                       schemaFullChecking = false;
     bool                       disallowDoctype    = false;
+    bool                       doSchemaLocation = false;
+    bool                       useSchemaCache = false;
+    bool                       useSchemaPresets = false;
     bool                       doList = false;
     bool                       errorOccurred = false;
     bool                       recognizeNEL = false;
     bool                       printOutEncounteredEles = false;
     char                       localeStr[64];
+    char                       schemaCache[1024];
+    char                       schemaPreset[32];
+    char                       schemaLocation[2048];
+    XMLCh*                     nsloc;
     memset(localeStr, 0, sizeof localeStr);
+    memset(schemaCache, 0, sizeof schemaCache);
+    memset(schemaPreset, 0, sizeof schemaPreset);
+    memset(schemaLocation, 0, sizeof schemaLocation);
 
     int argInd;
     for (argInd = 1; argInd < argC; argInd++)
@@ -180,6 +214,24 @@ int main(int argC, char* argV[])
                 XERCES_STD_QUALIFIER cerr << "Unknown -v= value: " << parm << XERCES_STD_QUALIFIER endl;
                 return 2;
             }
+        }
+         else if (!strncmp(argV[argInd], "-sc=", 4))
+        {
+            strcpy(schemaCache, &(argV[argInd][4]));
+            strcat(schemaCache, "/");
+            useSchemaCache = true;
+        }
+         else if (!strncmp(argV[argInd], "-slp=", 5))
+        {
+            strcpy(schemaPreset, &(argV[argInd][5]));
+            useSchemaPresets = true;
+            doSchemaLocation = true;
+        }
+         else if (!strncmp(argV[argInd], "-sl=", 4))
+        {
+            strcpy(schemaLocation, &argV[argInd][4]);
+            doSchemaLocation = true;
+            XERCES_STD_QUALIFIER cout <<"Using schemaLocation: \""<< schemaLocation << "\"" << XERCES_STD_QUALIFIER endl;
         }
          else if (!strcmp(argV[argInd], "-n")
               ||  !strcmp(argV[argInd], "-N"))
@@ -230,6 +282,139 @@ int main(int argC, char* argV[])
             XERCES_STD_QUALIFIER cerr << "Unknown option '" << argV[argInd]
                  << "', ignoring it\n" << XERCES_STD_QUALIFIER endl;
         }
+    }
+
+    if (useSchemaPresets)
+    {
+        const char kml21_name[] = "http://earth.google.com/kml/2.1";
+        const char kml21_locn[] = "developers.google.com/kml/schema/";
+        const char kml21_xsd[] = "kml21.xsd";
+        const char gxxv3_name[] = "http://www.garmin.com/xmlschemas/GpxExtensions/v3";
+        const char gxxv3_locn[] = "www8.garmin.com/xmlschemas/GpxExtensions/v3/";
+        const char gxxv3_xsd[] = "GpxExtensionsv3.xsd";
+        const char gpxtpxv1_name[] = "http://www.garmin.com/xmlschemas/TrackPointExtension/v1";
+        const char gpxtpxv1_locn[] = "www8.garmin.com/xmlschemas/";
+        const char gpxtpxv1_xsd[] = "TrackPointExtensionv1.xsd";
+        const char gpxtpxv2_name[] = "http://www.garmin.com/xmlschemas/TrackPointExtension/v2";
+        const char gpxtpxv2_locn[] = "www8.garmin.com/xmlschemas/";
+        const char gpxtpxv2_xsd[] = "TrackPointExtensionv2.xsd";
+        const char kml22gx_name[] = "http://www.google.com/kml/ext/2.2";
+        const char kml22gx_locn[] = "developers.google.com/kml/schema/";
+        const char kml22gx_xsd[] = "kml22gx.xsd";
+        const char kml22_name[] = "http://www.opengis.net/kml/2.2";
+        const char kml22_locn[] = "schemas.opengis.net/kml/2.2.0/";
+        const char kml22_xsd[] = "ogckml22.xsd";
+        const char gpx10_name[] = "http://www.topografix.com/GPX/1/0";
+        const char gpx10_locn[] = "www.topografix.com/GPX/1/0/";
+        const char gpx10_xsd[] = "gpx.xsd";
+        const char gpx11_name[] = "http://www.topografix.com/GPX/1/1";
+        const char gpx11_locn[] = "www.topografix.com/GPX/1/1/";
+        const char gpx11_xsd[] = "gpx.xsd";
+        const char tc2_name[] = "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2";
+        const char tc2_locn[] = "www8.garmin.com/xmlschemas/";
+        const char tc2_xsd[] = "TrainingCenterDatabasev2.xsd";
+        const char ax2_name[] = "http://www.garmin.com/xmlschemas/ActivityExtension/v2";
+        const char ax2_locn[] = "www8.garmin.com/xmlschemas/";
+        const char ax2_xsd[] = "ActivityExtensionv2.xsd";
+        const char gpxtripv1_name[] = "http://www.garmin.com/xmlschemas/TripExtensions/v1";
+        const char gpxtripv1_locn[] = "www8.garmin.com/xmlschemas/";
+        const char gpxtripv1_xsd[] = "TripExtensionsv1.xsd";
+        const char atom_name[] = "http://www.w3.org/2005/Atom";
+        const char atom_locn[] = "schemas.opengis.net/kml/2.2.0/";
+        const char atom_xsd[] = "atom-author-link.xsd";
+        const char xAL_name[] ="urn:oasis:names:tc:ciq:xsdschema:xAL:2.0";
+        const char xAL_locn[] = "docs.oasis-open.org/election/external/";
+        const char xAL_xsd[] = "xAL.xsd";
+		const char adv_name[] = "http://www.garmin.com/xmlschemas/AdventuresExtensions/v1";
+		const char adv_locn[] = "www.javawa.nl/geo/schemas/";
+		const char adv_xsd[] = "AdventuresExtensionv1.xsd";
+		const char pres_name[] = "http://www.garmin.com/xmlschemas/PressureExtension/v1";
+		const char pres_locn[] = "www.javawa.nl/geo/schemas/";
+		const char pres_xsd[] = "PressureExtensionv1.xsd";
+		const char tmdename[] = "http://www.garmin.com/xmlschemas/TripMetaDataExtensions/v1";
+		const char tmdelocn[] = "www.javawa.nl/geo/schemas/";
+		const char tmdexsd[] = "TripMetaDataExtensionsv1.xsd";
+		const char viap_name[] = "http://www.garmin.com/xmlschemas/ViaPointTransportationModeExtensions/v1";
+		const char viap_locn[] = "www.javawa.nl/geo/schemas/";
+		const char viap_xsd[] = "ViaPointTransportationModeExtensionsv1.xsd";
+		const char cret_name[] = "http://www.garmin.com/xmlschemas/CreationTimeExtension/v1";
+		const char cret_locn[] = "www.javawa.nl/geo/schemas/";
+		const char cret_xsd[] = "CreationTimeExtensionv1.xsd";
+		const char video_name[] = "http://www.garmin.com/xmlschemas/VideoExtension/v1";
+		const char video_locn[] = "www.javawa.nl/geo/schemas/";
+		const char video_xsd[] = "VideoExtensionv1.xsd";
+
+
+        if (!strcmp(schemaPreset,"kml22"))
+        {
+            buildSchemaLocation(schemaLocation, kml22_name, useSchemaCache, schemaCache, schemaPreset, kml22_locn, kml22_xsd);
+            buildSchemaLocation(schemaLocation, atom_name, useSchemaCache, schemaCache, schemaPreset, atom_locn, atom_xsd);
+            buildSchemaLocation(schemaLocation, xAL_name, useSchemaCache, schemaCache, schemaPreset, xAL_locn, xAL_xsd);
+            buildSchemaLocation(schemaLocation, kml22gx_name, useSchemaCache, schemaCache, schemaPreset, kml22gx_locn, kml22gx_xsd);
+        }
+        else if (!strcmp(schemaPreset,"kml21"))
+        {
+            buildSchemaLocation(schemaLocation, kml21_name, useSchemaCache, schemaCache, schemaPreset, kml21_locn, kml21_xsd);
+        }
+        else if (!strcmp(schemaPreset,"kml"))
+        {
+            buildSchemaLocation(schemaLocation, kml22_name, useSchemaCache, schemaCache, schemaPreset, kml22_locn, kml22_xsd);
+            buildSchemaLocation(schemaLocation, atom_name, useSchemaCache, schemaCache, schemaPreset, atom_locn, atom_xsd);
+            buildSchemaLocation(schemaLocation, xAL_name, useSchemaCache, schemaCache, schemaPreset, xAL_locn, xAL_xsd);
+            buildSchemaLocation(schemaLocation, kml22gx_name, useSchemaCache, schemaCache, schemaPreset, kml22gx_locn, kml22gx_xsd);
+            buildSchemaLocation(schemaLocation, kml21_name, useSchemaCache, schemaCache, schemaPreset, kml21_locn, kml21_xsd);
+        }
+        else if (!strcmp(schemaPreset,"gpx11"))
+        {
+            buildSchemaLocation(schemaLocation, gpx11_name, useSchemaCache, schemaCache, schemaPreset, gpx11_locn, gpx11_xsd);
+            buildSchemaLocation(schemaLocation, gxxv3_name, useSchemaCache, schemaCache, schemaPreset, gxxv3_locn, gxxv3_xsd);
+            buildSchemaLocation(schemaLocation, gpxtpxv1_name, useSchemaCache, schemaCache, schemaPreset, gpxtpxv1_locn, gpxtpxv1_xsd);
+            buildSchemaLocation(schemaLocation, gpxtpxv2_name, useSchemaCache, schemaCache, schemaPreset, gpxtpxv2_locn, gpxtpxv2_xsd);
+            buildSchemaLocation(schemaLocation, gpxtripv1_name, useSchemaCache, schemaCache, schemaPreset, gpxtripv1_locn, gpxtripv1_xsd);
+            buildSchemaLocation(schemaLocation, adv_name, useSchemaCache, schemaCache, schemaPreset, adv_locn, adv_xsd);
+            buildSchemaLocation(schemaLocation, pres_name, useSchemaCache, schemaCache, schemaPreset, pres_locn, pres_xsd);
+            buildSchemaLocation(schemaLocation, tmdename, useSchemaCache, schemaCache, schemaPreset, tmdelocn, tmdexsd);
+            buildSchemaLocation(schemaLocation, viap_name, useSchemaCache, schemaCache, schemaPreset, viap_locn, viap_xsd);
+            buildSchemaLocation(schemaLocation, cret_name, useSchemaCache, schemaCache, schemaPreset, cret_locn, cret_xsd);
+            buildSchemaLocation(schemaLocation, video_name, useSchemaCache, schemaCache, schemaPreset, video_locn, video_xsd);
+        }
+        else if (!strcmp(schemaPreset,"gpx10"))
+        {
+            buildSchemaLocation(schemaLocation, gpx10_name, useSchemaCache, schemaCache, schemaPreset, gpx10_locn, gpx10_xsd);
+        }
+        else if (!strcmp(schemaPreset,"gpx"))
+        {
+            if (useSchemaCache)
+            {
+                // rename gpx.xsd from 1.0 and 1.1 so their names don't conflcit.
+                buildSchemaLocation(schemaLocation, gpx11_name, useSchemaCache, schemaCache, schemaPreset, gpx11_locn, "gpx11.xsd");
+                buildSchemaLocation(schemaLocation, gxxv3_name, useSchemaCache, schemaCache, schemaPreset, gxxv3_locn, gxxv3_xsd);
+                buildSchemaLocation(schemaLocation, gpxtpxv1_name, useSchemaCache, schemaCache, schemaPreset, gpxtpxv1_locn, gpxtpxv1_xsd);
+                buildSchemaLocation(schemaLocation, gpxtpxv2_name, useSchemaCache, schemaCache, schemaPreset, gpxtpxv2_locn, gpxtpxv2_xsd);
+                buildSchemaLocation(schemaLocation, gpxtripv1_name, useSchemaCache, schemaCache, schemaPreset, gpxtripv1_locn, gpxtripv1_xsd);
+                buildSchemaLocation(schemaLocation, gpx10_name, useSchemaCache, schemaCache, schemaPreset, gpx10_locn, "gpx10.xsd");
+            }
+            else
+            {
+                buildSchemaLocation(schemaLocation, gpx11_name, useSchemaCache, schemaCache, schemaPreset, gpx11_locn, gpx11_xsd);
+                buildSchemaLocation(schemaLocation, gxxv3_name, useSchemaCache, schemaCache, schemaPreset, gxxv3_locn, gxxv3_xsd);
+                buildSchemaLocation(schemaLocation, gpxtpxv1_name, useSchemaCache, schemaCache, schemaPreset, gpxtpxv1_locn, gpxtpxv1_xsd);
+                buildSchemaLocation(schemaLocation, gpxtpxv2_name, useSchemaCache, schemaCache, schemaPreset, gpxtpxv2_locn, gpxtpxv2_xsd);
+                buildSchemaLocation(schemaLocation, gpxtripv1_name, useSchemaCache, schemaCache, schemaPreset, gpxtripv1_locn, gpxtripv1_xsd);
+                buildSchemaLocation(schemaLocation, gpx10_name, useSchemaCache, schemaCache, schemaPreset, gpx10_locn, gpx10_xsd);
+            }
+        }
+        else if (!strcmp(schemaPreset,"tcx"))
+        {
+            buildSchemaLocation(schemaLocation, tc2_name, useSchemaCache, schemaCache, schemaPreset, tc2_locn, tc2_xsd);
+            buildSchemaLocation(schemaLocation, ax2_name, useSchemaCache, schemaCache, schemaPreset, ax2_locn, ax2_xsd);
+        }
+        else
+        {
+            XERCES_STD_QUALIFIER cerr << "Unknown -slp= value: " << schemaPreset << XERCES_STD_QUALIFIER endl;
+            return 2;
+        }
+        XERCES_STD_QUALIFIER cout <<"Using schemaLocation: \""<< schemaLocation << "\"" << XERCES_STD_QUALIFIER endl;
     }
 
     //
@@ -294,6 +479,15 @@ int main(int argC, char* argV[])
 
     // enable datatype normalization - default is off
     config->setParameter(XMLUni::fgDOMDatatypeNormalization, true);
+
+    // set schema locations
+    if (doSchemaLocation) {
+        nsloc=XMLString::transcode(schemaLocation);
+           config->setParameter(XMLUni::fgXercesSchemaExternalSchemaLocation, nsloc);
+//           config->setParameter(XMLUni::fgXercesCacheGrammarFromParse, true);
+//           config->setParameter(XMLUni::fgXercesUseCachedGrammarInParse, true);
+//           config->setParameter(XMLUni::fgXercesScannerName, XMLUni::fgSGXMLScanner);
+    }
 
     // And create our error handler and install it
     DOMCountErrorHandler errorHandler;
@@ -412,6 +606,10 @@ int main(int argC, char* argV[])
             XERCES_STD_QUALIFIER cout << xmlFile << ": " << duration << " ms ("
                  << elementCount << " elems)." << XERCES_STD_QUALIFIER endl;
         }
+    }
+
+    if (doSchemaLocation) {
+        XMLString::release(&nsloc);
     }
 
     //
